@@ -100,6 +100,8 @@ CLIMATE_LABELS = {
     "WSDI": "Warm Spell Duration Index",
 }
 
+DAY_COUNT_FEATURES = {"CDD", "CSDI", "CWD", "R50MM", "TR", "TR29", "TR32", "WSDI"}
+
 
 def friendly_name(feature: str) -> str:
     code = feature.removeprefix("WB_CCKP_")
@@ -213,19 +215,6 @@ with overview_tab:
     annual = trend_rows.groupby(["YEAR", "ITEM"])["YIELD"].mean().unstack("ITEM")
     st.line_chart(annual, color=["#3b8060", "#c48b45", "#879d50"])
 
-    st.markdown("#### Year coverage by country and crop")
-    coverage = (
-        data.groupby(["AREA", "ITEM"])["YEAR"].nunique().unstack(fill_value=0)
-        .reindex(index=areas, columns=crops, fill_value=0)
-    )
-    st.dataframe(
-        coverage.style.background_gradient(cmap="YlGn", vmin=0, vmax=year_max - year_min + 1),
-        use_container_width=True,
-        height=360,
-    )
-    st.caption(f"Cell values are observed year counts out of {year_max - year_min + 1}; blank combinations are shown as 0.")
-
-
 with predict_tab:
     st.subheader("Estimate a yield")
     st.write(
@@ -257,15 +246,26 @@ with predict_tab:
             if pd.isna(default_value):
                 default_value = overall_defaults.get(feature, 0.0)
             default_value = float(default_value)
-            step = max(abs(default_value) * 0.02, 0.01)
+            is_day_count = feature.removeprefix("WB_CCKP_") in DAY_COUNT_FEATURES
+            if is_day_count:
+                default_value = float(np.floor(default_value + 0.5))
+            step = 1.0 if is_day_count else max(abs(default_value) * 0.02, 0.01)
             with input_columns[index % 2]:
                 input_values[feature] = st.number_input(
                     friendly_name(feature),
                     value=default_value,
                     step=float(step),
-                    format="%.4f",
-                    key=f"input_{selected_area}_{selected_crop}_{feature}",
-                    help=f"Default is the median from the selected group. Source feature: {feature}.",
+                    format="%.0f" if is_day_count else "%.4f",
+                    key=(
+                        f"input_{selected_area}_{selected_crop}_{feature}_whole_days"
+                        if is_day_count
+                        else f"input_{selected_area}_{selected_crop}_{feature}"
+                    ),
+                    help=(
+                        f"Default is the rounded median from the selected group. Source feature: {feature}."
+                        if is_day_count
+                        else f"Default is the median from the selected group. Source feature: {feature}."
+                    ),
                 )
         submitted = st.form_submit_button("Predict yield", type="primary", use_container_width=True)
 
@@ -369,6 +369,16 @@ with explore_tab:
     ].copy()
     st.write(f"Showing **{len(filtered):,}** of {len(data):,} observations.")
     if not filtered.empty:
+        st.markdown("#### Yield observations over time")
+        st.scatter_chart(
+            filtered,
+            x="YEAR",
+            y="YIELD",
+            color="ITEM",
+            x_label="Year",
+            y_label="Yield (kg/ha)",
+            use_container_width=True,
+        )
         st.dataframe(filtered, hide_index=True, use_container_width=True, height=520)
         st.download_button(
             "Download filtered CSV",
