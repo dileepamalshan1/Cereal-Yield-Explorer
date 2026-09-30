@@ -369,16 +369,26 @@ with explore_tab:
     ].copy()
     st.write(f"Showing **{len(filtered):,}** of {len(data):,} observations.")
     if not filtered.empty:
-        st.markdown("#### Yield observations over time")
-        st.scatter_chart(
-            filtered,
-            x="YEAR",
-            y="YIELD",
-            color="ITEM",
-            x_label="Year",
-            y_label="Yield (kg/ha)",
-            use_container_width=True,
+        st.markdown("#### Yield trend over time")
+
+        trend_data = (
+            filtered.groupby(["YEAR", "ITEM"], as_index=False)["YIELD"]
+            .mean()
+            .pivot(index="YEAR", columns="ITEM", values="YIELD")
+            .sort_index()
         )
+        if not trend_data.empty:
+            st.line_chart(
+                trend_data,
+                x_label="Year",
+                y_label="Mean yield (kg/ha)",
+                use_container_width=True,
+            )
+            st.caption(
+                "Each line shows the mean yield for a crop across the selected years and countries. "
+                "This makes the long-term trend easier to read than raw observation points."
+            )
+
         st.dataframe(filtered, hide_index=True, use_container_width=True, height=520)
         st.download_button(
             "Download filtered CSV",
